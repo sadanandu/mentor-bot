@@ -1,0 +1,8 @@
+## Steps
+
+1. Setup Twilio sandbox 
+2. Start ollama locally
+3. Create server accepting requests from twilio and start server
+4. Put the server behind nginx proxy 
+5. Copy the ngnix proxy to webhook of twilio
+

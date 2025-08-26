@@ -1,25 +1,31 @@
 #! /Users/sadanandupase/PycharmProjects/whatsappAgent/.venv/bin/python
 from fastapi import FastAPI, Request
+import sys
+import os
+current_directory = os.path.abspath(os.path.dirname(__file__))
+sys.path.insert(0, current_directory)
 import requests, redis, json
 from fastapi import FastAPI, Form, Response
 from twilio.twiml.messaging_response import MessagingResponse
-
+from progress_manager import *
+import persistence_manager
 app = FastAPI()
+persistence_manager.setup()
 
-r = redis.Redis(host='localhost', port=6379, decode_responses=True)
+# r = redis.Redis(host='localhost', port=6379, decode_responses=True)
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL_NAME = "llama3.2"
 
-def get_user_history(user_id):
-    history = r.get(user_id)
-    return json.loads(history) if history else []
-    #return []
+# def get_user_history(user_id):
+#     history = r.get(user_id)
+#     return json.loads(history) if history else []
+#     #return []
+# 
+# def save_user_history(user_id, history):
+#     r.set(user_id, json.dumps(history), ex=3600)  # expire after 1 hr inactivity
+#     print("Saved")
 
-def save_user_history(user_id, history):
-    r.set(user_id, json.dumps(history), ex=3600)  # expire after 1 hr inactivity
-    print("Saved")
-    
 MAX_LEN = 1500   # keep below 1600 to be safe
 
 def split_message(text, max_len=MAX_LEN):
@@ -42,7 +48,7 @@ def flush_and_reset(buffer, twilio_response):
     if buffer.strip():
         twilio_response.message(buffer.strip())
     return ""
-    
+
 @app.post("/whatsapp")
 async def whatsapp_webhook(From: str = Form(...), Body: str = Form(...)):
     user_id = From      # WhatsApp user number
