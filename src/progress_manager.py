@@ -1,7 +1,8 @@
 import json
 import sqlite3
 import redis
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 
 # -------------------------------
 # Redis + SQLite Initialization
@@ -44,6 +45,12 @@ def save_user_history(user_id, history):
             VALUES (?, ?, ?, ?)
         """, (user_id, datetime.utcnow().isoformat(), last_msg["role"], last_msg["content"]))
         db_con.commit()
+        # event = {
+        #     "type": "history_saved",
+        #     "user_id": user_id,
+        #     "message": last_msg
+        # }
+        # r.publish("events", json.dumps(event))
 
 # -------------------------------
 # User Profile
@@ -175,3 +182,64 @@ def get_assignments(user_id, concept):
             "status": row[5]
         } for row in rows
     ]
+
+
+def analyse_and_update_progress(user_id, message):
+    """
+    Analyse the latest LLM-generated reply and update concept progress.
+    message: {"role": "assistant", "content": "...<CONCEPT=caching><EXAMPLE>..."}
+    """
+
+    content = message
+
+    # --- Parse concept tag ---
+    concept_match = re.search(r"<CONCEPT=(.*?)>", content)
+    concept = concept_match.group(1).strip().lower() if concept_match else "general"
+
+    # --- Parse response type ---
+    response_type = None
+    if "<EXPLANATION>" in content:
+        response_type = "explanation"
+    elif "<EXAMPLE>" in content:
+        response_type = "example"
+    elif "<ASSIGNMENT>" in content:
+        response_type = "assignment_given"
+
+    # --- Load current progress ---
+    progress = get_concept_progress(user_id, concept) or {
+        "level": 0,
+        "explanations_given": 0,
+        "examples_given": 0,
+        "assignments_given": 0,
+        "assignments_completed": 0,
+        "next_review_date": None,
+        "last_interaction": None,
+        "status": "active"
+    }
+
+    # --- Increment counters ---
+    if response_type == "explanation":
+        progress["explanations_given"] += 1
+    elif response_type == "example":
+        progress["examples_given"] += 1
+    elif response_type == "assignment_given":
+        progress["assignments_given"] += 1
+
+    # --- Update last interaction ---
+    now = datetime.utcnow().isoformat()
+    progress["last_interaction"] = now
+
+    # --- Spaced repetition logic (naive version) ---
+    base_days = [1, 3, 7, 14]
+    review_stage = min(progress["level"], len(base_days) - 1)
+    next_review = datetime.utcnow() + timedelta(days=base_days[review_stage])
+    progress["next_review_date"] = next_review.date().isoformat()
+
+    # --- Level advancement rule ---
+    if progress["explanations_given"] >= 3 and progress["examples_given"] >= 2:
+        progress["level"] = min(progress["level"] + 1, 2)  # cap at 2 (advanced)
+
+    # --- Save back ---
+    save_concept_progress(user_id, concept, progress)
+
+    return progress

@@ -62,11 +62,8 @@ async def whatsapp_webhook(From: str = Form(...), Body: str = Form(...)):
 
     # Build prompt (basic example, you can format better)
     conversation_text = "\n".join([f"{h['role']}: {h['content']}" for h in history])
-    system_prompt = '''You are an interview preparation coach for software engineers.
-    - Always give concise, practical answers suitable for WhatsApp.
-    - Insert <BREAK> tags in long replies to indicate natural split points (e.g. end of subtopics, flashcards, examples).
-    - Avoid giant blocks of text.
-    '''
+    with open(os.path.join(current_directory, "system_prompt.txt"), "r") as f:
+        system_prompt = f.read()
 
     messages = [
             {"role": "system", "content": system_prompt},
@@ -118,7 +115,12 @@ async def whatsapp_webhook(From: str = Form(...), Body: str = Form(...)):
 
 
     print(f"Final LLM reply: {llm_reply}")
-
+    event = {
+        "type": "history_saved",
+        "user_id": user_id,
+        "message": llm_reply
+    }
+    r.publish("events", json.dumps(event))
     # Add bot reply to history
     history.append({"role": "assistant", "content": llm_reply})
     save_user_history(user_id, history)
