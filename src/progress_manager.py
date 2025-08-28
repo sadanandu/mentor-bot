@@ -37,14 +37,15 @@ def save_user_history(user_id, history):
 
     # persist latest message in SQLite
     if history:
-        last_msg = history[-1]
-        db_con = get_db_connection()
-        cursor = db_con.cursor()
-        cursor.execute("""
-            INSERT INTO conversation_history (user_id, timestamp, role, content)
-            VALUES (?, ?, ?, ?)
-        """, (user_id, datetime.utcnow().isoformat(), last_msg["role"], last_msg["content"]))
-        db_con.commit()
+        for each in history[-2:]:
+            last_msg = each
+            db_con = get_db_connection()
+            cursor = db_con.cursor()
+            cursor.execute("""
+                INSERT INTO conversation_history (user_id, timestamp, role, content)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, datetime.utcnow().isoformat(), last_msg["role"], last_msg["content"]))
+            db_con.commit()
         # event = {
         #     "type": "history_saved",
         #     "user_id": user_id,
@@ -191,11 +192,11 @@ def analyse_and_update_progress(user_id, message):
     """
 
     content = message
-
+    print(content)
     # --- Parse concept tag ---
     concept_match = re.search(r"<CONCEPT=(.*?)>", content)
     concept = concept_match.group(1).strip().lower() if concept_match else "general"
-
+    print(f"Fetched concept from messages {concept_match}")
     # --- Parse response type ---
     response_type = None
     if "<EXPLANATION>" in content:
@@ -216,7 +217,8 @@ def analyse_and_update_progress(user_id, message):
         "last_interaction": None,
         "status": "active"
     }
-
+    print(f"Current Progress is {progress}")
+    print(f"Resource type {response_type}")
     # --- Increment counters ---
     if response_type == "explanation":
         progress["explanations_given"] += 1
@@ -238,7 +240,7 @@ def analyse_and_update_progress(user_id, message):
     # --- Level advancement rule ---
     if progress["explanations_given"] >= 3 and progress["examples_given"] >= 2:
         progress["level"] = min(progress["level"] + 1, 2)  # cap at 2 (advanced)
-
+    print(f"updated progress {progress}")
     # --- Save back ---
     save_concept_progress(user_id, concept, progress)
 

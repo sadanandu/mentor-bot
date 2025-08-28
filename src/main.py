@@ -2,6 +2,7 @@
 from fastapi import FastAPI, Request
 import sys
 import os
+import logging
 current_directory = os.path.abspath(os.path.dirname(__file__))
 sys.path.insert(0, current_directory)
 import requests, redis, json
@@ -14,6 +15,8 @@ persistence_manager.setup()
 
 # r = redis.Redis(host='localhost', port=6379, decode_responses=True)
 
+logger = logging.getLogger("mentorbot.main")
+logging.basicConfig(filename='mentorbot.log', level=logging.INFO)
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL_NAME = "llama3.2"
 
@@ -56,12 +59,12 @@ async def whatsapp_webhook(From: str = Form(...), Body: str = Form(...)):
 
     # Load conversation history
     history = get_user_history(user_id)
-
+    #history = summarise(history)
     # Add user message
     history.append({"role": "user", "content": user_message})
 
     # Build prompt (basic example, you can format better)
-    conversation_text = "\n".join([f"{h['role']}: {h['content']}" for h in history])
+    #conversation_text = "\n".join([f"{h['role']}: {h['content']}" for h in history])
     with open(os.path.join(current_directory, "system_prompt.txt"), "r") as f:
         system_prompt = f.read()
 
@@ -71,7 +74,7 @@ async def whatsapp_webhook(From: str = Form(...), Body: str = Form(...)):
     messages.extend(history)
     messages.append({"role": "user", "content": user_message})
 
-    payload = {"model": MODEL_NAME, "prompt": conversation_text}
+    #payload = {"model": MODEL_NAME, "prompt": conversation_text}
     payload = {
         "model": "llama3.2",  # or llama3, phi3, etc.
         "messages": messages,
@@ -79,23 +82,24 @@ async def whatsapp_webhook(From: str = Form(...), Body: str = Form(...)):
     }
 
     twilio_response = MessagingResponse()
-    print("Sending payload")
+    logger.info("Sending payload")
     buffer = ""
     with requests.post(OLLAMA_URL, json=payload, stream=True) as response:
         if response.status_code != 200:
-            print("Error from Ollama:", response.text)
+            logger.error("Error from Ollama:", response.text)
             twilio_response = MessagingResponse()
             twilio_response.message("⚠️ LLM error, please try again later.")
             return Response(content=str(twilio_response), media_type="application/xml")
 
-        llm_reply = ""
         for line in response.iter_lines():
+            logger.debug(f"Line is {line}")
             if line:
                 try:
                     data = json.loads(line.decode("utf-8"))
+                    logger.debug(f"Data is {data}")
                     if "message" in data and "content" in data["message"]:
                         buffer += data["message"]["content"]
-
+                    logger.debug(f"Buffer is {buffer}")
                     # Handle <BREAK> tags suggested by LLM
                     while "<BREAK>" in buffer:
                         part, buffer = buffer.split("<BREAK>", 1)
@@ -107,14 +111,14 @@ async def whatsapp_webhook(From: str = Form(...), Body: str = Form(...)):
                         buffer = flush_and_reset(buffer, twilio_response)
 
                     if data.get("done", False):
+                        llm_reply = buffer
                         # Flush whatever is left
                         buffer = flush_and_reset(buffer, twilio_response)
 
                 except Exception as e:
-                    print("Streaming parse error:", e)
+                    logger.error("Streaming parse error:", e)
 
-
-    print(f"Final LLM reply: {llm_reply}")
+    logger.info(f"Final LLM reply: {llm_reply}")
     event = {
         "type": "history_saved",
         "user_id": user_id,
